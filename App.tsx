@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { InputSection } from './components/InputSection';
@@ -76,6 +75,7 @@ const LiveAssistant: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                             const source = inputAudioContext.createMediaStreamSource(stream);
                             const processor = inputAudioContext.createScriptProcessor(4096, 1, 1);
                             processor.onaudioprocess = (e) => {
+                                if (!active) return;
                                 const inputData = e.inputBuffer.getChannelData(0);
                                 // Convert float32 to int16
                                 const l = inputData.length;
@@ -85,12 +85,14 @@ const LiveAssistant: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                 }
                                 const base64 = encode(new Uint8Array(int16.buffer));
                                 sessionPromise?.then(session => {
-                                    session.sendRealtimeInput({
-                                        media: {
-                                            mimeType: 'audio/pcm;rate=16000',
-                                            data: base64
-                                        }
-                                    });
+                                    if(active) {
+                                        session.sendRealtimeInput({
+                                            media: {
+                                                mimeType: 'audio/pcm;rate=16000',
+                                                data: base64
+                                            }
+                                        });
+                                    }
                                 });
                             };
                             source.connect(processor);
@@ -123,7 +125,6 @@ const LiveAssistant: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                             setLogs(p => [...p, "Session Closed"]);
                         },
                         onerror: (e: any) => {
-                            console.error("Live API Error:", e);
                             let errorMsg = "Unknown Error";
                             if (e instanceof ErrorEvent) {
                                 errorMsg = e.message || "Connection Failed (Check API Key/Network)";
@@ -132,6 +133,11 @@ const LiveAssistant: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                             } else if (typeof e === 'object') {
                                 errorMsg = JSON.stringify(e);
                             }
+                            
+                            // Ignore specific internal cancellation noise
+                            if (errorMsg.includes("Thread was cancelled")) return;
+                            
+                            console.error("Live API Error:", e);
                             setLogs(p => [...p, "Error: " + errorMsg]);
                             setStatus("Connection Error");
                         }
@@ -152,7 +158,7 @@ const LiveAssistant: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         
         return () => {
             active = false;
-            // Cleanup logic would go here ideally (closing context, session)
+            // Ideally we would close the session here via session.close() if exposed
         };
     }, []);
     
@@ -380,7 +386,10 @@ const App: React.FC = () => {
       {isHistoryOpen && <div className="fixed inset-0 bg-black/50 z-[90]" onClick={() => setIsHistoryOpen(false)} />}
       
       {currentView === 'LANDING' ? (
-        <LandingPageBuilder generatedContent={state.landingPage} />
+        <LandingPageBuilder 
+            generatedContent={state.landingPage} 
+            initialLanguage={state.result?.language}
+        />
       ) : (
         <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
           <div className="mb-8 text-center">
